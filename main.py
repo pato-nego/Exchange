@@ -1,6 +1,6 @@
-def main():
-    print("Hello from exchange!")
+from fastapi import FastAPI
 
 
-if __name__ == "__main__":
-    main()
+@app.get("/health")
+def health():
+    return {"message": "Exchange is healthy"}
