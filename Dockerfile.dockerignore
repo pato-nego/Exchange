@@ -1,0 +1,12 @@
+**
+!services/
+!services/Exchange/
+!services/Exchange/Dockerfile
+!services/Exchange/main.py
+!services/Exchange/pyproject.toml
+!services/Exchange/README.md
+!services/Exchange/uv.lock
+!services/Exchange-service/
+!services/Exchange-service/pyproject.toml
+!services/Exchange-service/README.md
+!services/Exchange-service/rates.py
