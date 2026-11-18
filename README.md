@@ -2,7 +2,7 @@
 
 Python controllers and API contract for Exchange.
 
-Python service logic belongs in [Exchange-service](https://github.com/pato-nego/Exchange-service), included at `services/Exchange-service` in the parent project.
+Python service logic belongs in [Exchange-service](https://github.com/pato-nego/Exchange-service), included at `api/exchange-service` in the parent project.
 
 `GET /exchange/{from}/{to}` accepts three-letter currency codes and returns
 `sell`, `buy`, `date`, and `id-account`. The rate comes from

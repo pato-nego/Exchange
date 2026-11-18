@@ -11,4 +11,4 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-exchange-service = { path = "../Exchange-service", editable = true }
+exchange-service = { path = "../exchange-service", editable = true }

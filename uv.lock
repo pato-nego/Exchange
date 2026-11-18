@@ -157,7 +157,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "exchange-service", editable = "../Exchange-service" },
+    { name = "exchange-service", editable = "../exchange-service" },
     { name = "fastapi", specifier = ">=0.162.6" },
     { name = "uvicorn", specifier = ">=0.54.0" },
 ]
@@ -165,7 +165,7 @@ requires-dist = [
 [[package]]
 name = "exchange-service"
 version = "0.1.0"
-source = { editable = "../Exchange-service" }
+source = { editable = "../exchange-service" }
 dependencies = [
     { name = "requests" },
 ]
