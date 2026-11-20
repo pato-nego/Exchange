@@ -28,5 +28,9 @@ spec:
               containerPort: 8000
           readinessProbe:
             httpGet:
-              path: /health
+              path: /exchange/health-check
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /exchange/health-check
               port: http

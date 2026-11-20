@@ -15,7 +15,8 @@ class QuoteResponse(BaseModel):
     account_id: str = Field(serialization_alias="id-account")
 
 
-@app.get("/health")
+@app.get("/exchange/health-check")
+@app.get("/health", include_in_schema=False)
 def health():
     return {"message": "Exchange is healthy"}
 
