@@ -1,0 +1,121 @@
+name: Exchange CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Build and test Exchange
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          path: exchange
+          persist-credentials: false
+      - name: Read the Exchange-service revision
+        id: dependency
+        run: |
+          revision=$(cat exchange/exchange-service.rev)
+          [[ "$revision" =~ ^[a-f0-9]{40}$ ]]
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: pato-nego/Exchange-service
+          ref: ${{ steps.dependency.outputs.revision }}
+          path: exchange-service
+          persist-credentials: false
+      - name: Build the image and test the packaged library
+        run: |
+          docker build -f exchange/Dockerfile -t exchange:ci .
+          docker run --rm \
+            --mount "type=bind,source=$PWD/exchange-service/test_rates.py,target=/tmp/test_rates.py,readonly" \
+            exchange:ci .venv/bin/python -m unittest discover -s /tmp -p test_rates.py
+      - name: Check the HTTP API
+        run: |
+          docker run -d --rm --name exchange-ci -p 127.0.0.1:8000:8000 exchange:ci
+          trap 'docker stop exchange-ci' EXIT
+          curl -fsS --max-time 3 --retry 10 --retry-all-errors --retry-delay 1 \
+            http://127.0.0.1:8000/health
+          status=$(curl -sS --max-time 3 -o /dev/null -w '%{http_code}' \
+            http://127.0.0.1:8000/exchange/USD/BRL)
+          test "$status" = 401
+      - name: Save the tested image
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.DOCKERHUB_IMAGE != ''
+        run: docker save exchange:ci -o exchange-image.tar
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.DOCKERHUB_IMAGE != ''
+        with:
+          name: exchange-image
+          path: exchange-image.tar
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 1
+
+  release:
+    name: Publish image and deploy Exchange
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.DOCKERHUB_IMAGE != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    concurrency:
+      group: exchange-release
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_IMAGE }}
+      EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+      EKS_NAMESPACE: ${{ vars.EKS_NAMESPACE }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: exchange-image
+      - name: Publish the tested image to Docker Hub
+        id: publish
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          [[ "$DOCKERHUB_IMAGE" =~ ^[a-z0-9][a-z0-9_-]*/[a-z0-9][a-z0-9._-]*$ ]]
+          : "${DOCKERHUB_USERNAME:?Set the DOCKERHUB_USERNAME secret}"
+          : "${DOCKERHUB_TOKEN:?Set the DOCKERHUB_TOKEN secret}"
+          printf '%s\n' "$DOCKERHUB_TOKEN" | docker login --username "$DOCKERHUB_USERNAME" --password-stdin
+          docker load --input exchange-image.tar
+          tag="$DOCKERHUB_IMAGE:$GITHUB_SHA"
+          docker tag exchange:ci "$tag"
+          docker push "$tag" | tee "$RUNNER_TEMP/exchange-push.log"
+          digest=$(awk '/digest: sha256:/ { for (i=1; i<NF; i++) if ($i=="digest:") print $(i+1) }' "$RUNNER_TEMP/exchange-push.log")
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          echo "image=docker.io/$DOCKERHUB_IMAGE@$digest" >> "$GITHUB_OUTPUT"
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
+        if: vars.EKS_CLUSTER_NAME != ''
+        with:
+          role-to-assume: ${{ vars.EKS_DEPLOY_ROLE_ARN }}
+          aws-region: sa-east-1
+      - name: Deploy the image to EKS
+        if: vars.EKS_CLUSTER_NAME != ''
+        env:
+          IMAGE: ${{ steps.publish.outputs.image }}
+        run: |
+          : "${EKS_NAMESPACE:?Set EKS_NAMESPACE to the Exchange namespace}"
+          export KUBECONFIG="$RUNNER_TEMP/exchange-kubeconfig"
+          aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --kubeconfig "$KUBECONFIG"
+          kubectl set image --local -f k8s/deployment.yaml "exchange=$IMAGE" -o yaml |
+            kubectl -n "$EKS_NAMESPACE" apply -f -
+          kubectl -n "$EKS_NAMESPACE" apply -f k8s/service.yaml
+          kubectl -n "$EKS_NAMESPACE" rollout status deployment/exchange --timeout=180s

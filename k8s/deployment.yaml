@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: exchange
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: exchange
+  template:
+    metadata:
+      labels:
+        app: exchange
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        workload: exchange
+      tolerations:
+        - key: workload
+          operator: Equal
+          value: exchange
+          effect: NoSchedule
+      containers:
+        - name: exchange
+          image: registry.invalid/exchange:bootstrap
+          ports:
+            - name: http
+              containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
