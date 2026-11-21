@@ -1,8 +1,7 @@
-# Exchange controllers
+# Exchange
 
-Python controllers and API contract for Exchange.
-
-Python service logic belongs in [Exchange-service](https://github.com/pato-nego/Exchange-service), included at `api/exchange-service` in the parent project.
+FastAPI serves currency quotes using the Bacen PTAX client in `rates.py`.
+Quotes are cached in memory for five minutes by default. A failed refresh can serve a stale quote.
 
 `GET /exchange/{from}/{to}` accepts three-letter currency codes and returns
 `sell`, `buy`, `date`, and `id-account`. The rate comes from
@@ -15,11 +14,10 @@ on a private network. `just run` from the parent is for local development.
 
 ## CI/CD
 
-The [workflow](.github/workflows/ci-cd.yml) checks out the exact library commit
-in `exchange-service.rev`, builds the image, runs the library unit tests in it,
-and checks the HTTP health and authentication responses. Update that pin and
-the parent's `api/exchange-service` submodule together when adopting a library
-change.
+From this repository, run `uv run --locked python -m unittest test_rates` to test
+the PTAX client, or `uv run --locked uvicorn main:app` to start the API.
+The [workflow](.github/workflows/ci-cd.yml) builds the image, runs the PTAX tests
+inside it, and checks the HTTP health and authentication responses.
 
 To publish from `main`, set the `DOCKERHUB_IMAGE` Actions variable to the
 team's public Docker Hub repository (for example, `team/exchange`). Set

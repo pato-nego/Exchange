@@ -22,26 +22,13 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          path: exchange
           persist-credentials: false
-      - name: Read the Exchange-service revision
-        id: dependency
+      - name: Build and test Exchange
         run: |
-          revision=$(cat exchange/exchange-service.rev)
-          [[ "$revision" =~ ^[a-f0-9]{40}$ ]]
-          echo "revision=$revision" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          repository: pato-nego/Exchange-service
-          ref: ${{ steps.dependency.outputs.revision }}
-          path: exchange-service
-          persist-credentials: false
-      - name: Build the image and test the packaged library
-        run: |
-          docker build -f exchange/Dockerfile -t exchange:ci .
+          docker build -t exchange:ci .
           docker run --rm \
-            --mount "type=bind,source=$PWD/exchange-service/test_rates.py,target=/tmp/test_rates.py,readonly" \
-            exchange:ci .venv/bin/python -m unittest discover -s /tmp -p test_rates.py
+            --mount "type=bind,source=$PWD/test_rates.py,target=/app/exchange/test_rates.py,readonly" \
+            exchange:ci .venv/bin/python -m unittest test_rates
       - name: Check the HTTP API
         run: |
           docker run -d --rm --name exchange-ci -p 127.0.0.1:8000:8000 exchange:ci
