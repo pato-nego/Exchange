@@ -1,0 +1,8 @@
+site_name: Matheus Luciano · Pato Nego
+site_url: https://pato-nego.github.io/Exchange/
+repo_url: https://github.com/pato-nego/Exchange
+nav:
+  - Project and demo: index.md
+  - Kubernetes: kubernetes.md
+  - Bottlenecks and load tests: performance.md
+  - Costs and service objectives: costs.md

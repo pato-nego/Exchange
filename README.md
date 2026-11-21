@@ -12,6 +12,10 @@ Run the API behind the gateway, which
 authenticates the user and sets the `id-account` header. Keep the Exchange server
 on a private network. `just run` from the parent is for local development.
 
+## Project documentation
+
+[Read the published course submission](https://pato-nego.github.io/Exchange/). To build it locally, run `mkdocs build --strict` from the Exchange repository root.
+
 ## CI/CD
 
 From this repository, run `uv run --locked python -m unittest test_rates` to test
