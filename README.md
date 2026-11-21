@@ -19,8 +19,8 @@ the PTAX client, or `uv run --locked uvicorn main:app` to start the API.
 The [workflow](.github/workflows/ci-cd.yml) builds the image, runs the PTAX tests
 inside it, and checks the HTTP health and authentication responses.
 
-To publish from `main`, set the `DOCKERHUB_IMAGE` Actions variable to the
-team's public Docker Hub repository (for example, `team/exchange`). Set
+Releases from `main` publish to [matheusluciano99/pato-nego-exchange](https://hub.docker.com/r/matheusluciano99/pato-nego-exchange).
+The `DOCKERHUB_IMAGE` Actions variable holds that repository name. Set
 `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` as Actions secrets with permission
 to push there. The image is tagged with the Exchange commit SHA.
 
@@ -51,5 +51,4 @@ For the private Pato Nego cluster, set `EKS_CODEBUILD_PROJECT` and
 the private `pato-nego/exchange` ECR repository under its commit SHA.
 CodeBuild runs inside the VPC, selects the digest for that SHA, applies the
 matching manifest and waits for the rollout. The release job reports the
-CodeBuild result. Docker Hub publication can also be enabled with the settings
-above. The cluster access role can patch only Exchange resources in its namespace.
+CodeBuild result. The cluster access role can patch only Exchange resources in its namespace.
