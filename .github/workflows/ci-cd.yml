@@ -39,10 +39,10 @@ jobs:
             http://127.0.0.1:8000/exchange/USD/BRL)
           test "$status" = 401
       - name: Save the tested image
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.DOCKERHUB_IMAGE != ''
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && (vars.DOCKERHUB_IMAGE != '' || vars.EKS_CODEBUILD_PROJECT != '')
         run: docker save exchange:ci -o exchange-image.tar
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.DOCKERHUB_IMAGE != ''
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && (vars.DOCKERHUB_IMAGE != '' || vars.EKS_CODEBUILD_PROJECT != '')
         with:
           name: exchange-image
           path: exchange-image.tar
@@ -53,9 +53,9 @@ jobs:
   release:
     name: Publish image and deploy Exchange
     needs: build
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.DOCKERHUB_IMAGE != ''
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && (vars.DOCKERHUB_IMAGE != '' || vars.EKS_CODEBUILD_PROJECT != '')
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 20
     concurrency:
       group: exchange-release
     permissions:
@@ -72,7 +72,10 @@ jobs:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: exchange-image
+      - name: Load the tested image
+        run: docker load --input exchange-image.tar
       - name: Publish the tested image to Docker Hub
+        if: vars.DOCKERHUB_IMAGE != ''
         id: publish
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -82,7 +85,6 @@ jobs:
           : "${DOCKERHUB_USERNAME:?Set the DOCKERHUB_USERNAME secret}"
           : "${DOCKERHUB_TOKEN:?Set the DOCKERHUB_TOKEN secret}"
           printf '%s\n' "$DOCKERHUB_TOKEN" | docker login --username "$DOCKERHUB_USERNAME" --password-stdin
-          docker load --input exchange-image.tar
           tag="$DOCKERHUB_IMAGE:$GITHUB_SHA"
           docker tag exchange:ci "$tag"
           docker push "$tag" | tee "$RUNNER_TEMP/exchange-push.log"
@@ -90,19 +92,46 @@ jobs:
           [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
           echo "image=docker.io/$DOCKERHUB_IMAGE@$digest" >> "$GITHUB_OUTPUT"
       - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
-        if: vars.EKS_CLUSTER_NAME != ''
+        if: vars.EKS_CLUSTER_NAME != '' || vars.EKS_CODEBUILD_PROJECT != ''
         with:
           role-to-assume: ${{ vars.EKS_DEPLOY_ROLE_ARN }}
           aws-region: sa-east-1
-      - name: Deploy the image to EKS
-        if: vars.EKS_CLUSTER_NAME != ''
+      - name: Publish to ECR and wait for the private EKS deployment
+        if: vars.EKS_CODEBUILD_PROJECT != ''
+        env:
+          PROJECT: ${{ vars.EKS_CODEBUILD_PROJECT }}
+        run: |
+          account=$(aws sts get-caller-identity --query Account --output text)
+          registry="$account.dkr.ecr.sa-east-1.amazonaws.com"
+          repo=pato-nego/exchange
+          if ! aws ecr describe-images --repository-name "$repo" --image-ids "imageTag=$GITHUB_SHA" >/dev/null; then
+            aws ecr get-login-password | docker login --username AWS --password-stdin "$registry"
+            docker tag exchange:ci "$registry/$repo:$GITHUB_SHA"
+            docker push "$registry/$repo:$GITHUB_SHA"
+          fi
+          build=$(aws codebuild start-build --project-name "$PROJECT" \
+            --environment-variables-override "name=RELEASE_SHA,value=$GITHUB_SHA,type=PLAINTEXT" \
+            --query build.id --output text)
+          echo "AWS deployment build $build"
+          for attempt in {1..60}; do
+            status=$(aws codebuild batch-get-builds --ids "$build" --query 'builds[0].buildStatus' --output text)
+            case "$status" in
+              SUCCEEDED) exit 0 ;;
+              IN_PROGRESS) sleep 10 ;;
+              *) echo "Deployment ended with $status"; exit 1 ;;
+            esac
+          done
+          echo "Timed out waiting for the EKS deployment"
+          exit 1
+      - name: Deploy the Docker Hub image directly to EKS
+        if: vars.EKS_CLUSTER_NAME != '' && vars.EKS_CODEBUILD_PROJECT == ''
         env:
           IMAGE: ${{ steps.publish.outputs.image }}
         run: |
           : "${EKS_NAMESPACE:?Set EKS_NAMESPACE to the Exchange namespace}"
           export KUBECONFIG="$RUNNER_TEMP/exchange-kubeconfig"
           aws eks update-kubeconfig --name "$EKS_CLUSTER_NAME" --kubeconfig "$KUBECONFIG"
-          kubectl set image --local -f k8s/deployment.yaml "exchange=$IMAGE" -o yaml |
-            kubectl -n "$EKS_NAMESPACE" apply -f -
-          kubectl -n "$EKS_NAMESPACE" apply -f k8s/service.yaml
+          printf 'resources: [k8s.yaml]\nimages:\n  - name: pato-nego/exchange\n    newName: %s\n    digest: %s\n' \
+            "${IMAGE%@*}" "${IMAGE#*@}" > k8s/kustomization.yaml
+          kubectl -n "$EKS_NAMESPACE" apply -k k8s
           kubectl -n "$EKS_NAMESPACE" rollout status deployment/exchange --timeout=180s

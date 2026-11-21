@@ -35,7 +35,7 @@ For EKS rollout, set these Actions variables in the Exchange repo.
 Set the role's GitHub OIDC subject to
 `repo:pato-nego@317014205/Exchange@1412079538:ref:refs/heads/main` and its
 audience to `sts.amazonaws.com`. Give that IAM role access to the cluster and
-permission to apply the Deployment and Service and watch the rollout in the
+permission to apply the ConfigMap, Deployment and Service and watch the rollout in the
 Exchange namespace. The GitHub runner needs network access to the cluster API.
 
 Give the dedicated Exchange worker the label `workload=exchange`. The manifest
@@ -45,3 +45,11 @@ ClusterIP Service on port 8000 by its Kubernetes DNS name.
 The workflow applies the [manifests](k8s/) with the published image digest and
 waits for the rollout. Use **Run workflow** on `main` to run the configured
 pipeline manually.
+
+For the private Pato Nego cluster, set `EKS_CODEBUILD_PROJECT` and
+`EKS_DEPLOY_ROLE_ARN`. GitHub Actions uses OIDC to push the tested image to
+the private `pato-nego/exchange` ECR repository under its commit SHA.
+CodeBuild runs inside the VPC, selects the digest for that SHA, applies the
+matching manifest and waits for the rollout. The release job reports the
+CodeBuild result. Docker Hub publication can also be enabled with the settings
+above. The cluster access role can patch only Exchange resources in its namespace.
